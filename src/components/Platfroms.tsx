@@ -53,12 +53,13 @@ const PLATFORMS: Platform[] = [
 export default function Platforms() {
   return (
     <section className="flex flex-wrap justify-center gap-6">
-      {PLATFORMS.map((platform) => (
+      {PLATFORMS.map((platform, index) => (
         <Link
           key={platform.id}
           href={`/${platform.id}`}
           aria-label={`Go to ${platform.name} downloader page`}
-          className={`flex h-16 w-16 items-center justify-center rounded-xl text-white shadow-lg transition hover:scale-110 hover:shadow-[0_0_30px_rgba(255,255,255,0.25)] ${platform.bg}`}>
+          className={`platform-tile flex h-16 w-16 items-center justify-center rounded-xl text-white shadow-lg ${platform.bg}`}
+          style={{ animationDelay: `${index * 0.12}s` }}>
           {platform.icon}
         </Link>
       ))}

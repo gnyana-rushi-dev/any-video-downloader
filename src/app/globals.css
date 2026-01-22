@@ -103,3 +103,33 @@ body {
 .card-muted {
 	color: var(--card-muted-text);
 }
+
+.platform-tile {
+	--hover-scale: 1;
+	animation: platform-wave 2.4s ease-in-out infinite;
+	transform: translateY(0) scale(var(--hover-scale));
+	transition: transform 200ms ease, box-shadow 200ms ease, filter 200ms ease;
+	will-change: transform;
+}
+
+.platform-tile:hover {
+	--hover-scale: 1.08;
+	box-shadow: 0 0 30px rgba(255, 255, 255, 0.25);
+	filter: drop-shadow(0 6px 15px rgba(0, 0, 0, 0.35));
+}
+
+@keyframes platform-wave {
+	0%,
+	100% {
+		transform: translateY(0) scale(var(--hover-scale));
+	}
+	25% {
+		transform: translateY(-10px) scale(var(--hover-scale));
+	}
+	50% {
+		transform: translateY(0) scale(var(--hover-scale));
+	}
+	75% {
+		transform: translateY(8px) scale(var(--hover-scale));
+	}
+}
