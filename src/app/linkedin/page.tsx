@@ -1,5 +1,7 @@
 "use client";
 
+import MediaPreview from "@/components/MediaPreview";
+import { useMediaPreview } from "@/lib/hooks/useMediaPreview";
 import gsap from "gsap";
 import { useEffect, useRef, useState } from "react";
 
@@ -7,8 +9,19 @@ export default function LinkedInPage() {
   const [activeTab, setActiveTab] = useState<"video" | "audio">("video");
   const [inputValue, setInputValue] = useState("");
 
+  const {
+    metadata,
+    loading,
+    error,
+    fetchPreview,
+    togglePlaylistItem,
+    selectAllItems,
+    deselectAllItems,
+  } = useMediaPreview();
+
   const indicatorRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const debounceTimerRef = useRef<NodeJS.Timeout>();
 
   // Animate tab indicator
   useEffect(() => {
@@ -28,9 +41,28 @@ export default function LinkedInPage() {
     gsap.fromTo(
       contentRef.current,
       { y: 20, opacity: 0 },
-      { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }
+      { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" },
     );
   }, [activeTab]);
+
+  // Auto-fetch preview when URL is pasted
+  useEffect(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    if (!inputValue) return;
+
+    debounceTimerRef.current = setTimeout(() => {
+      fetchPreview(inputValue, "linkedin", activeTab);
+    }, 800);
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [inputValue, activeTab, fetchPreview]);
 
   return (
     <main className="page-gradient min-h-screen px-4 pt-24">
@@ -108,6 +140,15 @@ export default function LinkedInPage() {
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
               />
+
+              <MediaPreview
+                metadata={metadata}
+                loading={loading}
+                error={error}
+                onPlaylistItemToggle={togglePlaylistItem}
+                onSelectAll={selectAllItems}
+                onDeselectAll={deselectAllItems}
+              />
             </div>
           </div>
         ) : (
@@ -132,6 +173,15 @@ export default function LinkedInPage() {
                 }}
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
+              />
+
+              <MediaPreview
+                metadata={metadata}
+                loading={loading}
+                error={error}
+                onPlaylistItemToggle={togglePlaylistItem}
+                onSelectAll={selectAllItems}
+                onDeselectAll={deselectAllItems}
               />
             </div>
           </div>
