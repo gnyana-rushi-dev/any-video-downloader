@@ -10,6 +10,7 @@ interface UseMediaPreviewReturn {
   selectAllItems: () => void;
   deselectAllItems: () => void;
   clearPreview: () => void;
+  setErrorMessage: (message: string) => void;
 }
 
 export function useMediaPreview(): UseMediaPreviewReturn {
@@ -99,6 +100,12 @@ export function useMediaPreview(): UseMediaPreviewReturn {
     setLoading(false);
   }, []);
 
+  const setErrorMessage = useCallback((message: string) => {
+    setMetadata(undefined);
+    setError(message);
+    setLoading(false);
+  }, []);
+
   return {
     metadata,
     loading,
@@ -108,5 +115,6 @@ export function useMediaPreview(): UseMediaPreviewReturn {
     selectAllItems,
     deselectAllItems,
     clearPreview,
+    setErrorMessage,
   };
 }

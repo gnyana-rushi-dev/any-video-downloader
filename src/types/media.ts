@@ -1,3 +1,12 @@
+export interface AudioFormatOption {
+  formatId: string;
+  ext?: string;
+  abr?: number;
+  formatNote?: string;
+  filesize?: number;
+  label?: string;
+}
+
 export interface MediaMetadata {
   type: "video" | "audio" | "photo" | "playlist";
   title: string;
@@ -6,6 +15,8 @@ export interface MediaMetadata {
   author?: string;
   description?: string;
   platform: "youtube" | "facebook" | "instagram" | "twitter" | "linkedin";
+  sourceUrl?: string;
+  audioFormats?: AudioFormatOption[];
 }
 
 export interface PlaylistItem {

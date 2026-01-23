@@ -2,6 +2,7 @@
 
 import MediaPreview from "@/components/MediaPreview";
 import { useMediaPreview } from "@/lib/hooks/useMediaPreview";
+import { detectPlatform } from "@/lib/utils/platform";
 import gsap from "gsap";
 import { useEffect, useRef, useState } from "react";
 
@@ -20,11 +21,31 @@ export default function YouTubePage() {
     togglePlaylistItem,
     selectAllItems,
     deselectAllItems,
+    clearPreview,
+    setErrorMessage,
   } = useMediaPreview();
 
   const indicatorRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout>();
+
+  function isYouTubePlaylistUrl(url: string): boolean {
+    try {
+      const u = new URL(url);
+      const host = u.hostname.replace("www.", "");
+      const hasListParam = u.searchParams.has("list");
+      const path = u.pathname.toLowerCase();
+      return (
+        hasListParam ||
+        path.includes("/playlist") ||
+        (host.includes("youtube.com") &&
+          path.includes("/watch") &&
+          hasListParam)
+      );
+    } catch {
+      return false;
+    }
+  }
 
   // Animate tab indicator
   useEffect(() => {
@@ -57,6 +78,21 @@ export default function YouTubePage() {
     if (!inputValue) return;
 
     debounceTimerRef.current = setTimeout(() => {
+      if (downloadType === "single" && isYouTubePlaylistUrl(inputValue)) {
+        clearPreview();
+        setErrorMessage(
+          "Detected a playlist URL. Please switch to 'Playlist' mode to preview.",
+        );
+        return;
+      }
+      const detected = detectPlatform(inputValue);
+      if (detected !== "youtube" && detected !== "unknown") {
+        clearPreview();
+        setErrorMessage(
+          `This looks like a ${detected} link. Please paste a YouTube URL here or use the ${detected} downloader.`,
+        );
+        return;
+      }
       fetchPreview(inputValue, "youtube", activeTab);
     }, 800);
 
@@ -65,7 +101,7 @@ export default function YouTubePage() {
         clearTimeout(debounceTimerRef.current);
       }
     };
-  }, [inputValue, activeTab, fetchPreview]);
+  }, [inputValue, activeTab, fetchPreview, downloadType]);
 
   return (
     <main className="page-gradient min-h-screen px-4 pt-24">
@@ -118,139 +154,78 @@ export default function YouTubePage() {
       {/* Content */}
       <div
         ref={contentRef}
-        className="card-bg mx-auto mt-12 max-w-xl rounded-2xl p-8 shadow-xl">
-        {activeTab === "video" ? (
-          <div>
-            <h2
-              className="mb-4 text-xl font-semibold"
-              style={{ color: "var(--card-text)" }}>
-              Download YouTube Video
-            </h2>
-            <p className="card-muted mb-6">
-              Paste a YouTube video URL and download it in your preferred
-              quality.
-            </p>
+        className="card-bg mx-auto mt-12 max-w-4xl rounded-2xl p-8 shadow-xl mb-8">
+        <h2
+          className="mb-4 text-xl font-semibold"
+          style={{ color: "var(--card-text)" }}>
+          {activeTab === "video"
+            ? "Download YouTube Video"
+            : "Download YouTube Audio"}
+        </h2>
+        <p className="card-muted mb-6">
+          {activeTab === "video"
+            ? "Paste a YouTube video URL and download it in your preferred quality."
+            : "Extract high-quality audio from YouTube videos instantly."}
+        </p>
 
-            {/* Download Type Selection */}
-            <div className="mb-6 flex gap-6">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="radio"
-                  name="downloadType"
-                  value="single"
-                  checked={downloadType === "single"}
-                  onChange={() => setDownloadType("single")}
-                  className="w-4 h-4 cursor-pointer"
-                />
-                <span style={{ color: "var(--card-text)" }}>Single Video</span>
-              </label>
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="radio"
-                  name="downloadType"
-                  value="playlist"
-                  checked={downloadType === "playlist"}
-                  onChange={() => setDownloadType("playlist")}
-                  className="w-4 h-4 cursor-pointer"
-                />
-                <span style={{ color: "var(--card-text)" }}>Playlist</span>
-              </label>
-            </div>
+        {/* Download Type Selection */}
+        <div className="mb-4 flex gap-6">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="radio"
+              name="downloadType"
+              value="single"
+              checked={downloadType === "single"}
+              onChange={() => setDownloadType("single")}
+              className="w-4 h-4 cursor-pointer"
+            />
+            <span style={{ color: "var(--card-text)" }}>
+              {activeTab === "video" ? "Single Video" : "Single Audio"}
+            </span>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="radio"
+              name="downloadType"
+              value="playlist"
+              checked={downloadType === "playlist"}
+              onChange={() => setDownloadType("playlist")}
+              className="w-4 h-4 cursor-pointer"
+            />
+            <span style={{ color: "var(--card-text)" }}>Playlist</span>
+          </label>
+        </div>
 
-            <div className="space-y-4">
-              <input
-                type="url"
-                placeholder={
-                  downloadType === "single"
-                    ? "Paste YouTube video URL here..."
-                    : "Paste YouTube playlist URL here..."
-                }
-                className="w-full px-4 py-3 rounded-lg border transition-colors"
-                style={{
-                  backgroundColor: "var(--page-bg-gradient-from)",
-                  color: "var(--card-text)",
-                  borderColor: "var(--tab-bg)",
-                }}
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-              />
+        {/* URL Input */}
+        <input
+          type="url"
+          placeholder={
+            downloadType === "single"
+              ? "Paste YouTube video URL here..."
+              : "Paste YouTube playlist URL here..."
+          }
+          className="w-full px-4 py-3 rounded-lg border transition-colors"
+          style={{
+            backgroundColor: "var(--page-bg-gradient-from)",
+            color: "var(--card-text)",
+            borderColor: "var(--tab-bg)",
+          }}
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+        />
+      </div>
 
-              <MediaPreview
-                metadata={metadata}
-                loading={loading}
-                error={error}
-                onPlaylistItemToggle={togglePlaylistItem}
-                onSelectAll={selectAllItems}
-                onDeselectAll={deselectAllItems}
-              />
-            </div>
-          </div>
-        ) : (
-          <div>
-            <h2
-              className="mb-4 text-xl font-semibold"
-              style={{ color: "var(--card-text)" }}>
-              Download YouTube Audio
-            </h2>
-            <p className="card-muted mb-6">
-              Extract high-quality audio from YouTube videos instantly.
-            </p>
-
-            {/* Download Type Selection */}
-            <div className="mb-6 flex gap-6">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="radio"
-                  name="downloadType"
-                  value="single"
-                  checked={downloadType === "single"}
-                  onChange={() => setDownloadType("single")}
-                  className="w-4 h-4 cursor-pointer"
-                />
-                <span style={{ color: "var(--card-text)" }}>Single Audio</span>
-              </label>
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="radio"
-                  name="downloadType"
-                  value="playlist"
-                  checked={downloadType === "playlist"}
-                  onChange={() => setDownloadType("playlist")}
-                  className="w-4 h-4 cursor-pointer"
-                />
-                <span style={{ color: "var(--card-text)" }}>Playlist</span>
-              </label>
-            </div>
-
-            <div className="space-y-4">
-              <input
-                type="url"
-                placeholder={
-                  downloadType === "single"
-                    ? "Paste YouTube video URL here..."
-                    : "Paste YouTube playlist URL here..."
-                }
-                className="w-full px-4 py-3 rounded-lg border transition-colors"
-                style={{
-                  backgroundColor: "var(--page-bg-gradient-from)",
-                  color: "var(--card-text)",
-                  borderColor: "var(--tab-bg)",
-                }}
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-              />
-
-              <MediaPreview
-                metadata={metadata}
-                loading={loading}
-                error={error}
-                onPlaylistItemToggle={togglePlaylistItem}
-                onSelectAll={selectAllItems}
-                onDeselectAll={deselectAllItems}
-              />
-            </div>
-          </div>
-        )}
+      {/* Preview Box - Full Width */}
+      <div className="w-full max-w-full px-2">
+        <MediaPreview
+          metadata={metadata}
+          loading={loading}
+          error={error}
+          onPlaylistItemToggle={togglePlaylistItem}
+          onSelectAll={selectAllItems}
+          onDeselectAll={deselectAllItems}
+          zipKind={activeTab}
+        />
       </div>
     </main>
   );

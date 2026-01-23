@@ -1,4 +1,34 @@
+import { AudioFormatOption } from "@/types/media";
 import { NextRequest, NextResponse } from "next/server";
+import { YtDlp } from "ytdlp-nodejs";
+export const runtime = "nodejs";
+
+type Platform = "youtube" | "facebook" | "instagram" | "twitter" | "linkedin" | "unknown";
+
+function detectPlatform(url: string): Platform {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace("www.", "");
+    if (host.includes("youtube.com") || host.includes("youtu.be")) return "youtube";
+    if (host.includes("facebook.com") || host.includes("fb.watch")) return "facebook";
+    if (host.includes("instagram.com")) return "instagram";
+    if (host.includes("twitter.com") || host.includes("x.com")) return "twitter";
+    if (host.includes("linkedin.com")) return "linkedin";
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+function secondsToTimestamp(seconds?: number): string | undefined {
+  if (seconds == null || isNaN(seconds)) return undefined;
+  const s = Math.floor(seconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -8,81 +38,108 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "URL is required" }, { status: 400 });
     }
 
-    // Simulate fetching metadata - Replace with actual API calls
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Safely create YtDlp instance, allowing PATH discovery or env overrides
+    let ytdlp: YtDlp | null = null;
+    try {
+      const opts: { binaryPath?: string; ffmpegPath?: string } = {};
+      if (process.env.YTDLP_BINARY_PATH) opts.binaryPath = process.env.YTDLP_BINARY_PATH;
+      if (process.env.FFMPEG_PATH) opts.ffmpegPath = process.env.FFMPEG_PATH;
+      ytdlp = new YtDlp(opts);
+    } catch (e) {
+      return NextResponse.json(
+        {
+          error:
+            "yt-dlp binary not found. Install yt-dlp or set YTDLP_BINARY_PATH in .env.local.",
+          details: e instanceof Error ? e.message : String(e),
+          help: {
+            windows: [
+              "winget install yt-dlp.yt-dlp",
+              "scoop install yt-dlp",
+              "py -m pip install -U yt-dlp",
+            ],
+            env: "YTDLP_BINARY_PATH=C:/path/to/yt-dlp.exe",
+          },
+        },
+        { status: 503 }
+      );
+    }
 
-    // Check if it's a playlist URL
-    const isPlaylist = url.includes("list=") || url.includes("playlist");
+    // Fetch metadata via yt-dlp
+    let info: any;
+    try {
+      info = await ytdlp.getInfoAsync(url, { flatPlaylist: true });
+    } catch (e) {
+      // Provide clearer failure when binary is missing
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.toLowerCase().includes("ytdlp") || msg.toLowerCase().includes("yt-dlp")) {
+        return NextResponse.json(
+          {
+            error:
+              "Failed to run yt-dlp. Ensure it is installed and accessible (PATH or YTDLP_BINARY_PATH).",
+            details: msg,
+          },
+          { status: 503 }
+        );
+      }
+      return NextResponse.json({ error: msg }, { status: 500 });
+    }
 
-    if (isPlaylist) {
-      // Mock playlist data
+    const platform = detectPlatform(url);
+
+    // Playlist handling
+    if ((info as any)._type === "playlist") {
+      const playlist = info as any;
+      const title: string = playlist.title ?? "Playlist";
+      const author: string | undefined = playlist.uploader ?? playlist.channel ?? undefined;
+      const entries: any[] = Array.isArray(playlist.entries) ? playlist.entries : [];
+
+      const items = entries.map((e) => {
+        const thumb = e.thumbnail || (Array.isArray(e.thumbnails) ? e.thumbnails[0]?.url : undefined);
+        const duration = secondsToTimestamp(e.duration);
+        const id = e.id ?? e.url ?? cryptoRandomId();
+        const urlItem = e.url ?? e.webpage_url ?? url;
+        return {
+          id,
+          title: e.title ?? "Untitled",
+          thumbnail: thumb,
+          duration,
+          url: urlItem,
+          selected: false,
+        };
+      });
+
       return NextResponse.json({
         type: "playlist",
-        title: "Sample YouTube Playlist",
-        thumbnail:
-          "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg",
-        author: "Channel Name",
-        platform: "youtube",
-        totalItems: 5,
-        items: [
-          {
-            id: "1",
-            title: "Video 1 - Introduction to the Series",
-            thumbnail:
-              "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg",
-            duration: "5:32",
-            url: "https://youtube.com/watch?v=1",
-            selected: false,
-          },
-          {
-            id: "2",
-            title: "Video 2 - Getting Started",
-            thumbnail:
-              "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg",
-            duration: "8:15",
-            url: "https://youtube.com/watch?v=2",
-            selected: false,
-          },
-          {
-            id: "3",
-            title: "Video 3 - Advanced Topics",
-            thumbnail:
-              "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg",
-            duration: "12:45",
-            url: "https://youtube.com/watch?v=3",
-            selected: false,
-          },
-          {
-            id: "4",
-            title: "Video 4 - Best Practices",
-            thumbnail:
-              "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg",
-            duration: "10:20",
-            url: "https://youtube.com/watch?v=4",
-            selected: false,
-          },
-          {
-            id: "5",
-            title: "Video 5 - Conclusion and Next Steps",
-            thumbnail:
-              "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg",
-            duration: "6:55",
-            url: "https://youtube.com/watch?v=5",
-            selected: false,
-          },
-        ],
+        title,
+        author,
+        platform,
+        totalItems: items.length,
+        items,
       });
     }
 
-    // Mock single video data
+    // Single video handling
+    const video = info as any;
+    const title: string = video.title ?? "Untitled";
+    const author: string | undefined = video.uploader ?? video.channel ?? undefined;
+    const description: string | undefined = video.description ?? undefined;
+    const duration: string | undefined = secondsToTimestamp(video.duration);
+    const thumb: string | undefined = video.thumbnail || (Array.isArray(video.thumbnails) ? video.thumbnails[0]?.url : undefined);
+    const audioFormats: AudioFormatOption[] | undefined =
+      type === "audio" && Array.isArray(video.formats)
+        ? extractAudioFormats(video.formats)
+        : undefined;
+
     return NextResponse.json({
-      type: type || "video",
-      title: "Sample YouTube Video Title",
-      thumbnail: "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg",
-      duration: "3:45",
-      author: "Channel Name",
-      description: "This is a sample video description",
-      platform: "youtube",
+      type: (type as any) || "video",
+      title,
+      author,
+      description,
+      duration,
+      thumbnail: thumb,
+      platform,
+      sourceUrl: url,
+      audioFormats,
     });
   } catch (error) {
     console.error("Error fetching preview:", error);
@@ -91,4 +148,50 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+function cryptoRandomId() {
+  // Lightweight random ID to ensure unique playlist item ids
+  return Math.random().toString(36).slice(2, 10);
+}
+
+function extractAudioFormats(formats: any[]): AudioFormatOption[] {
+  const seen = new Set<string>();
+  const audioFormats = formats
+    .filter((f) =>
+      f && f.format_id && f.vcodec === "none" && f.acodec && f.acodec !== "none",
+    )
+    .map((f) => {
+      const bitrate = typeof f.abr === "number" ? f.abr : typeof f.tbr === "number" ? Math.round(f.tbr) : undefined;
+      const size = f.filesize ?? f.filesize_approx;
+      const labelParts = [
+        bitrate ? `${bitrate} kbps` : undefined,
+        f.ext ? f.ext.toUpperCase() : undefined,
+        size ? `${(size / (1024 * 1024)).toFixed(1)} MB` : undefined,
+      ].filter(Boolean);
+
+      return {
+        formatId: f.format_id,
+        ext: f.ext,
+        abr: bitrate,
+        formatNote: f.format_note,
+        filesize: size,
+        label: labelParts.join(" • ") || f.format_id,
+      } satisfies AudioFormatOption;
+    })
+    .filter((f) => {
+      if (seen.has(f.formatId)) return false;
+      seen.add(f.formatId);
+      return true;
+    })
+    .sort((a, b) => (b.abr ?? 0) - (a.abr ?? 0));
+
+  // Return top 3 quality tiers: Best, Better, Good
+  const top3 = audioFormats.slice(0, 3);
+  const qualityNames = ["Best", "Better", "Good"];
+  
+  return top3.map((fmt, idx) => ({
+    ...fmt,
+    label: `${qualityNames[idx]} - ${fmt.label}`,
+  }));
 }
