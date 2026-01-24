@@ -125,7 +125,8 @@ export async function GET(request: NextRequest) {
     console.log("[Download] Sending file:", { filename, ext, size: fileBuffer.length });
 
     // Stream the file to the client
-    return new Response(fileBuffer, {
+    // Convert Buffer to Uint8Array to satisfy the Web Response body type
+    return new Response(new Uint8Array(fileBuffer), {
       headers: {
         "Content-Type": getContentType(ext, kind),
         "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"`,
