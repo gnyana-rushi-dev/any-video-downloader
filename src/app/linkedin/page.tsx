@@ -26,7 +26,7 @@ export default function LinkedInPage() {
 
   const indicatorRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const debounceTimerRef = useRef<NodeJS.Timeout>();
+  const debounceTimerRef = useRef<number | null>(null);
 
   // Animate tab indicator
   useEffect(() => {
@@ -52,13 +52,14 @@ export default function LinkedInPage() {
 
   // Auto-fetch preview when URL is pasted
   useEffect(() => {
-    if (debounceTimerRef.current) {
+    if (debounceTimerRef.current !== null) {
       clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
     }
 
     if (!inputValue) return;
 
-    debounceTimerRef.current = setTimeout(() => {
+    debounceTimerRef.current = window.setTimeout(() => {
       const detected = detectPlatform(inputValue);
       if (detected !== "linkedin" && detected !== "unknown") {
         clearPreview();
@@ -71,8 +72,9 @@ export default function LinkedInPage() {
     }, 800);
 
     return () => {
-      if (debounceTimerRef.current) {
+      if (debounceTimerRef.current !== null) {
         clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
       }
     };
   }, [inputValue, activeTab, fetchPreview]);

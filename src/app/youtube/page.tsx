@@ -27,7 +27,7 @@ export default function YouTubePage() {
 
   const indicatorRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const debounceTimerRef = useRef<NodeJS.Timeout>();
+  const debounceTimerRef = useRef<number | null>(null);
 
   function isYouTubePlaylistUrl(url: string): boolean {
     try {
@@ -71,13 +71,14 @@ export default function YouTubePage() {
 
   // Auto-fetch preview when URL is pasted
   useEffect(() => {
-    if (debounceTimerRef.current) {
+    if (debounceTimerRef.current !== null) {
       clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
     }
 
     if (!inputValue) return;
 
-    debounceTimerRef.current = setTimeout(() => {
+    debounceTimerRef.current = window.setTimeout(() => {
       if (downloadType === "single" && isYouTubePlaylistUrl(inputValue)) {
         clearPreview();
         setErrorMessage(
@@ -97,8 +98,9 @@ export default function YouTubePage() {
     }, 800);
 
     return () => {
-      if (debounceTimerRef.current) {
+      if (debounceTimerRef.current !== null) {
         clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
       }
     };
   }, [inputValue, activeTab, fetchPreview, downloadType]);
