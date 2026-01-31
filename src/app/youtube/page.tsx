@@ -7,10 +7,55 @@ import gsap from "gsap";
 import { useEffect, useRef, useState } from "react";
 
 export default function YouTubePage() {
+    // Batch download state
+    const [batchDownloading, setBatchDownloading] = useState(false);
+    const [batchProgress, setBatchProgress] = useState(0);
+    const [batchMessage, setBatchMessage] = useState<string | null>(null);
+    const [batchSeverity, setBatchSeverity] = useState<'success' | 'error' | 'info'>('info');
+
+    // Handle file upload and batch download
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      setBatchDownloading(true);
+      setBatchProgress(0);
+      setBatchMessage(null);
+      try {
+        const text = await file.text();
+        const links = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        if (links.length === 0) throw new Error("No links found in file.");
+        let completed = 0;
+        for (const link of links) {
+          try {
+            const res = await fetch(`/api/download?url=${encodeURIComponent(link)}&kind=video`);
+            if (!res.ok) throw new Error(`Failed: ${link}`);
+            const blob = await res.blob();
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = `video_${completed + 1}.mp4`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(a.href);
+          } catch (err) {
+            // Optionally, collect errors for reporting
+          }
+          completed++;
+          setBatchProgress(Math.round((completed / links.length) * 100));
+        }
+        setBatchMessage("Batch download complete.");
+        setBatchSeverity("success");
+      } catch (err) {
+        setBatchMessage(err instanceof Error ? err.message : String(err));
+        setBatchSeverity("error");
+      } finally {
+        setBatchDownloading(false);
+        setBatchProgress(0);
+        e.target.value = "";
+      }
+    };
   const [activeTab, setActiveTab] = useState<"video" | "audio">("video");
-  const [downloadType, setDownloadType] = useState<"single" | "playlist">(
-    "single",
-  );
+  const [downloadType, setDownloadType] = useState<"single" | "playlist">("single");
   const [inputValue, setInputValue] = useState("");
 
   const {
@@ -129,7 +174,11 @@ export default function YouTubePage() {
         />
 
         <button
-          onClick={() => setActiveTab("video")}
+          onClick={() => {
+            setActiveTab("video");
+            setInputValue("");
+            clearPreview();
+          }}
           className={`relative z-10 flex-1 rounded-lg py-3 font-semibold transition`}
           style={{
             color:
@@ -141,7 +190,11 @@ export default function YouTubePage() {
         </button>
 
         <button
-          onClick={() => setActiveTab("audio")}
+          onClick={() => {
+            setActiveTab("audio");
+            setInputValue("");
+            clearPreview();
+          }}
           className={`relative z-10 flex-1 rounded-lg py-3 font-semibold transition`}
           style={{
             color:
@@ -151,6 +204,67 @@ export default function YouTubePage() {
           }}>
           Audio
         </button>
+      </div>
+
+      {/* Batch Download UI */}
+      <div className="mx-auto mt-8 max-w-4xl mb-4 flex items-center gap-4">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <span
+            className="rounded-lg border px-4 py-2 font-medium select-none"
+            style={{
+              borderColor: "var(--tab-indicator)",
+              color: "var(--tab-indicator)",
+              background: batchDownloading ? "#222" : "transparent",
+              opacity: batchDownloading ? 0.7 : 1,
+              cursor: batchDownloading ? "not-allowed" : "pointer",
+            }}
+          >
+            Upload Links File
+          </span>
+          <input
+            type="file"
+            accept=".txt"
+            onChange={handleFileUpload}
+            disabled={batchDownloading}
+            style={{
+              display: 'inline-block',
+              width: 140,
+              cursor: batchDownloading ? 'not-allowed' : 'pointer',
+              background: 'transparent',
+              color: 'var(--tab-indicator)',
+              border: 'none',
+              fontSize: 14,
+            }}
+          />
+        </label>
+        {batchDownloading && (
+          <div className="flex flex-col min-w-[200px]">
+            <span style={{ color: "var(--card-text)", fontSize: 14 }}>
+              Downloading batch... {batchProgress}%
+            </span>
+            <div className="w-full h-2 bg-gray-700 rounded mt-1">
+              <div
+                className="h-2 rounded"
+                style={{
+                  width: `${batchProgress}%`,
+                  background: "var(--tab-indicator)",
+                  transition: "width 0.3s",
+                }}
+              />
+            </div>
+          </div>
+        )}
+        {batchMessage && (
+          <span
+            style={{
+              color: batchSeverity === 'success' ? 'limegreen' : batchSeverity === 'error' ? 'red' : 'orange',
+              fontWeight: 500,
+              marginLeft: 12,
+            }}
+          >
+            {batchMessage}
+          </span>
+        )}
       </div>
 
       {/* Content */}
@@ -178,7 +292,11 @@ export default function YouTubePage() {
               name="downloadType"
               value="single"
               checked={downloadType === "single"}
-              onChange={() => setDownloadType("single")}
+              onChange={() => {
+                setDownloadType("single");
+                setInputValue("");
+                clearPreview();
+              }}
               className="w-4 h-4 cursor-pointer"
             />
             <span style={{ color: "var(--card-text)" }}>
@@ -191,7 +309,11 @@ export default function YouTubePage() {
               name="downloadType"
               value="playlist"
               checked={downloadType === "playlist"}
-              onChange={() => setDownloadType("playlist")}
+              onChange={() => {
+                setDownloadType("playlist");
+                setInputValue("");
+                clearPreview();
+              }}
               className="w-4 h-4 cursor-pointer"
             />
             <span style={{ color: "var(--card-text)" }}>Playlist</span>

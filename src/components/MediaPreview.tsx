@@ -1,6 +1,7 @@
 "use client";
 
 import { MediaMetadata, PlaylistItem, PlaylistMetadata } from "@/types/media";
+import { FolderPicker } from "./FolderPicker";
 import {
   Alert,
   Box,
@@ -15,6 +16,7 @@ import {
 } from "@mui/material";
 import gsap from "gsap";
 import { useEffect, useRef, useState } from "react";
+import React from "react";
 
 interface MediaPreviewProps {
   metadata?: MediaMetadata | PlaylistMetadata;
@@ -35,6 +37,56 @@ export default function MediaPreview({
   onDeselectAll,
   zipKind,
 }: MediaPreviewProps) {
+  const [downloadFolder, setDownloadFolder] = useState<FileSystemDirectoryHandle | null>(null);
+  // State for batch download
+  const [batchDownloading, setBatchDownloading] = useState(false);
+  const [batchProgress, setBatchProgress] = useState(0);
+
+  // Handle file upload and batch download
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBatchDownloading(true);
+    setBatchProgress(0);
+    try {
+      const text = await file.text();
+      // Extract links (one per line, ignore empty lines)
+      const links = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      if (links.length === 0) throw new Error("No links found in file.");
+      let completed = 0;
+      for (const link of links) {
+        try {
+          // Call backend API to trigger download (adjust endpoint as needed)
+          const res = await fetch(`/api/download?url=${encodeURIComponent(link)}&kind=video`);
+          if (!res.ok) throw new Error(`Failed: ${link}`);
+          const blob = await res.blob();
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = `video_${completed + 1}.mp4`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(a.href);
+        } catch (err) {
+          // Optionally, collect errors for reporting
+        }
+        completed++;
+        setBatchProgress(Math.round((completed / links.length) * 100));
+      }
+      setSnackbarMessage("Batch download complete.");
+      setSnackbarSeverity("success");
+      setSnackbarOpen(true);
+    } catch (err) {
+      setSnackbarMessage(err instanceof Error ? err.message : String(err));
+      setSnackbarSeverity("error");
+      setSnackbarOpen(true);
+    } finally {
+      setBatchDownloading(false);
+      setBatchProgress(0);
+      e.target.value = ""; // Reset file input
+    }
+  };
+  const [downloadedIds, setDownloadedIds] = useState<string[]>([]);
   const previewRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string>();
@@ -78,6 +130,32 @@ export default function MediaPreview({
 
   return (
     <div ref={previewRef} className="mt-6 overflow-hidden">
+      {/* Batch download from text file */}
+      <Box className="mb-4 flex items-center gap-4">
+        <Button
+          variant="outlined"
+          component="label"
+          sx={{ borderColor: "var(--tab-indicator)", color: "var(--tab-indicator)" }}
+          disabled={batchDownloading}
+        >
+          Upload Links File
+          <input
+            type="file"
+            accept=".txt"
+            hidden
+            onChange={handleFileUpload}
+            disabled={batchDownloading}
+          />
+        </Button>
+        {batchDownloading && (
+          <Box sx={{ minWidth: 200 }}>
+            <Typography variant="body2" sx={{ color: "var(--card-text)" }}>
+              Downloading batch... {batchProgress}%
+            </Typography>
+            <LinearProgress value={batchProgress} variant="determinate" sx={{ height: 8, borderRadius: 4 }} />
+          </Box>
+        )}
+      </Box>
       {loading && (
         <Box
           className="rounded-lg p-6"
@@ -136,16 +214,27 @@ export default function MediaPreview({
             border: "1px solid var(--tab-bg)",
           }}>
           {metadata.type === "playlist" ? (
-            <PlaylistPreview
-              playlist={metadata as PlaylistMetadata}
-              onItemToggle={onPlaylistItemToggle}
-              onSelectAll={onSelectAll}
-              onDeselectAll={onDeselectAll}
-              zipKind={zipKind}
-              onDownloading={setDownloading}
-              onProgress={setDownloadProgress}
-              onError={setDownloadError}
-            />
+            <>
+              <div className="mb-4">
+                <FolderPicker onFolderSelect={setDownloadFolder} />
+                {downloadFolder && (
+                  <span className="ml-2 text-xs text-green-600">Folder selected</span>
+                )}
+              </div>
+              <PlaylistPreview
+                playlist={metadata as PlaylistMetadata}
+                onItemToggle={onPlaylistItemToggle}
+                onSelectAll={onSelectAll}
+                onDeselectAll={onDeselectAll}
+                zipKind={zipKind}
+                onDownloading={setDownloading}
+                onProgress={setDownloadProgress}
+                onError={setDownloadError}
+                downloadFolder={downloadFolder}
+                downloadedIds={downloadedIds}
+                setDownloadedIds={setDownloadedIds}
+              />
+            </>
           ) : (
             <SingleMediaPreview
               media={metadata}
@@ -428,6 +517,9 @@ function PlaylistPreview({
   onDownloading,
   onProgress,
   onError,
+  downloadFolder,
+  downloadedIds,
+  setDownloadedIds,
 }: {
   playlist: PlaylistMetadata;
   onItemToggle?: (id: string) => void;
@@ -437,40 +529,56 @@ function PlaylistPreview({
   onDownloading?: (v: boolean) => void;
   onProgress?: (p: number) => void;
   onError?: (m?: string) => void;
+  downloadFolder?: FileSystemDirectoryHandle | null;
+  downloadedIds: string[];
+  setDownloadedIds: React.Dispatch<React.SetStateAction<string[]>>;
 }) {
-  const selectedCount = playlist.items.filter((item) => item.selected).length;
-  const allSelected = selectedCount === playlist.items.length;
+  // Count selected items
+  const selectedCount = playlist.items.filter((i) => i.selected).length;
   const noneSelected = selectedCount === 0;
+  const allSelected = selectedCount === playlist.items.length;
 
+  // Download selected items as individual files
   async function downloadSelected(
     items: PlaylistItem[],
-    setError: (m?: string) => void,
-    setDownloading: (v: boolean) => void,
+    onError: (m?: string) => void,
+    onDownloading: (v: boolean) => void,
+    downloadFolder?: FileSystemDirectoryHandle | null
   ) {
     try {
-      setError(undefined);
-      setDownloading(true);
-      const selected = items.filter((i) => i.selected && i.url);
-      if (selected.length === 0) throw new Error("No items selected");
-
-      // Download each selected item using the download endpoint
-      selected.forEach((item, index) => {
-        setTimeout(() => {
-          const downloadUrl = `/api/download?url=${encodeURIComponent(item.url)}&kind=video`;
+      onError(undefined);
+      onDownloading(true);
+      for (const item of items) {
+        if (!item.selected || !item.url) continue;
+        const kind = zipKind ?? "video";
+        const formatExt = kind === "audio" ? "mp3" : "mp4";
+        const downloadUrl = `/api/download?url=${encodeURIComponent(item.url)}&kind=${kind}`;
+        const response = await fetch(downloadUrl);
+        if (!response.ok) throw new Error(`Download failed: ${item.title}`);
+        const blob = await response.blob();
+        if (downloadFolder && "showDirectoryPicker" in window) {
+          // Save directly to the selected folder
+          const fileHandle = await downloadFolder.getFileHandle(`${item.title}.${formatExt}`, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+        } else {
+          // Fallback: browser download
+          const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
-          a.href = downloadUrl;
-          a.download = `${item.title}.mp4`;
-          a.rel = "noopener";
+          a.href = url;
+          a.download = `${item.title}.${formatExt}`;
           document.body.appendChild(a);
           a.click();
-          a.remove();
-        }, index * 500); // Stagger downloads by 500ms
-      });
-
-      setTimeout(() => setDownloading(false), 1000);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setDownloading(false);
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }
+        setDownloadedIds((prev) => [...prev, item.id]);
+      }
+      onDownloading(false);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+      onDownloading(false);
     }
   }
 
@@ -490,134 +598,140 @@ function PlaylistPreview({
           </p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onSelectAll?.();
-            }}
-            disabled={allSelected}
-            type="button"
-            className="rounded-lg px-3 py-1.5 text-sm font-medium transition-opacity disabled:opacity-50"
-            style={{
-              backgroundColor: "var(--tab-indicator)",
-              color: "var(--page-bg-gradient-to)",
-            }}>
-            Select All
-          </button>
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onDeselectAll?.();
-            }}
-            disabled={noneSelected}
-            type="button"
-            className="rounded-lg px-3 py-1.5 text-sm font-medium transition-opacity disabled:opacity-50"
-            style={{
-              backgroundColor: "var(--tab-bg)",
-              color: "var(--card-text)",
-            }}>
-            Deselect All
-          </button>
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              // Fallback: individual downloads via browser
-              onDownloading?.(true);
-              downloadSelected(
-                playlist.items,
-                (m) => onError?.(m),
-                (v) => onDownloading?.(v),
-              );
-            }}
-            disabled={noneSelected}
-            type="button"
-            className="rounded-lg px-3 py-1.5 text-sm font-medium transition-opacity disabled:opacity-50"
-            style={{
-              backgroundColor: "var(--tab-indicator)",
-              color: "var(--page-bg-gradient-to)",
-            }}>
-            Download Selected
-          </button>
-          {selectedCount > 1 && (
+          <React.Fragment>
             <button
-              onClick={async (e) => {
+              onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                try {
-                  // Start loader
-                  onError?.(undefined);
-                  onDownloading?.(true);
-                  // Gather selected URLs
-                  const urls = playlist.items
-                    .filter((i) => i.selected && i.url)
-                    .map((i) => i.url!);
-                  if (urls.length < 2) return;
-                  // Trigger ZIP download with progress
-                  const res = await fetch("/api/download-zip", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ urls, kind: zipKind ?? "video" }),
-                  });
-                  if (!res.ok)
-                    throw new Error(`ZIP request failed: ${res.statusText}`);
-                  const totalHeader = res.headers.get("X-Total-Size");
-                  const total = totalHeader ? parseInt(totalHeader, 10) : 0;
-                  const reader = res.body?.getReader();
-                  if (!reader) throw new Error("ZIP stream not readable");
-                  const chunks: Uint8Array[] = [];
-                  let received = 0;
-                  while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    chunks.push(value);
-                    received += value.length;
-                    if (total > 0) {
-                      const pct = Math.round((received / total) * 100);
-                      onProgress?.(pct);
-                    }
-                  }
-                  const blob = new Blob(chunks as BlobPart[], {
-                    type: "application/zip",
-                  });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = "playlist.zip";
-                  document.body.appendChild(a);
-                  a.click();
-                  document.body.removeChild(a);
-                  URL.revokeObjectURL(url);
-                  onProgress?.(100);
-                  setTimeout(() => {
-                    onDownloading?.(false);
-                    onProgress?.(0);
-                  }, 500);
-                } catch (err) {
-                  onError?.(err instanceof Error ? err.message : String(err));
-                  onDownloading?.(false);
-                }
+                onDownloading?.(true);
+                downloadSelected(
+                  playlist.items,
+                  (m: string | undefined) => onError?.(m),
+                  (v: boolean) => onDownloading?.(v),
+                  downloadFolder,
+                );
               }}
+              disabled={noneSelected}
               type="button"
-              className="rounded-lg px-3 py-1.5 text-sm font-medium"
+              className="rounded-lg px-3 py-1.5 text-sm font-medium transition-opacity disabled:opacity-50"
               style={{
                 backgroundColor: "var(--tab-indicator)",
                 color: "var(--page-bg-gradient-to)",
               }}>
-              Download as ZIP
+              Download Selected
             </button>
-          )}
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onSelectAll?.();
+              }}
+              disabled={allSelected}
+              type="button"
+              className="rounded-lg px-3 py-1.5 text-sm font-medium transition-opacity disabled:opacity-50"
+              style={{
+                backgroundColor: "var(--tab-indicator)",
+                color: "var(--page-bg-gradient-to)",
+              }}>
+              Select All
+            </button>
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onDeselectAll?.();
+              }}
+              disabled={noneSelected}
+              type="button"
+              className="rounded-lg px-3 py-1.5 text-sm font-medium transition-opacity disabled:opacity-50"
+              style={{
+                backgroundColor: "var(--tab-bg)",
+                color: "var(--card-text)",
+              }}>
+              Deselect All
+            </button>
+          </React.Fragment>
         </div>
       </div>
 
+      {selectedCount > 1 && (
+        <div className="mb-4">
+          <button
+            onClick={async (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              try {
+                // Start loader
+                onError?.(undefined);
+                onDownloading?.(true);
+                // Gather selected URLs
+                const urls = playlist.items
+                  .filter((i) => i.selected && i.url)
+                  .map((i) => i.url!);
+                if (urls.length < 2) return;
+                // Trigger ZIP download with progress
+                const res = await fetch("/api/download-zip", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ urls, kind: zipKind ?? "video" }),
+                });
+                if (!res.ok)
+                  throw new Error(`ZIP request failed: ${res.statusText}`);
+                const totalHeader = res.headers.get("X-Total-Size");
+                const total = totalHeader ? parseInt(totalHeader, 10) : 0;
+                const reader = res.body?.getReader();
+                if (!reader) throw new Error("ZIP stream not readable");
+                const chunks: Uint8Array[] = [];
+                let received = 0;
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  chunks.push(value!);
+                  received += value!.length;
+                  if (total > 0) {
+                    const pct = Math.round((received / total) * 100);
+                    onProgress?.(pct);
+                  }
+                }
+                const blob = new Blob(chunks as BlobPart[], {
+                  type: "application/zip",
+                });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "playlist.zip";
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                onProgress?.(100);
+                setTimeout(() => {
+                  onDownloading?.(false);
+                  onProgress?.(0);
+                }, 500);
+              } catch (err) {
+                onError?.(err instanceof Error ? err.message : String(err));
+                onDownloading?.(false);
+              }
+            }}
+            type="button"
+            className="rounded-lg px-3 py-1.5 text-sm font-medium"
+            style={{
+              backgroundColor: "var(--tab-indicator)",
+              color: "var(--page-bg-gradient-to)",
+            }}>
+            Download as ZIP
+          </button>
+        </div>
+      )}
+
       <div className="max-h-96 space-y-2 overflow-y-auto">
-        {playlist.items.map((item, idx) => (
+        {playlist.items.map((item: PlaylistItem, idx: number) => (
           <PlaylistItemRow
             key={`${item.id}-${idx}`}
             item={item}
             onToggle={onItemToggle}
+            downloaded={downloadedIds.includes(item.id)}
           />
         ))}
       </div>
@@ -628,9 +742,11 @@ function PlaylistPreview({
 function PlaylistItemRow({
   item,
   onToggle,
+  downloaded,
 }: {
   item: PlaylistItem;
   onToggle?: (id: string) => void;
+  downloaded?: boolean;
 }) {
   const handleToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
     e.preventDefault();
@@ -667,20 +783,25 @@ function PlaylistItemRow({
           className="h-12 w-20 flex-shrink-0 rounded object-cover"
         />
       )}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden flex items-center">
         <p
           className="truncate text-sm font-medium"
           style={{ color: "var(--card-text)" }}>
           {item.title}
         </p>
-        {item.duration && (
-          <p
-            className="text-xs"
-            style={{ color: "var(--card-text)", opacity: 0.6 }}>
-            {item.duration}
-          </p>
+        {downloaded && (
+          <span className="ml-2 text-green-600" title="Downloaded">
+            &#10003;
+          </span>
         )}
       </div>
+      {item.duration && (
+        <p
+          className="text-xs"
+          style={{ color: "var(--card-text)", opacity: 0.6 }}>
+          {item.duration}
+        </p>
+      )}
     </label>
   );
 }
